@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 30
 
     steps:
@@ -102,7 +102,7 @@ jobs:
   # The release build uses -Owholemodule with strict concurrency, which Debug
   # builds don't enforce. Catching that here keeps it out of a tagged release.
   release-build:
-    runs-on: macos-26
+    runs-on: macos-26-intel
     timeout-minutes: 30
 
     steps:
