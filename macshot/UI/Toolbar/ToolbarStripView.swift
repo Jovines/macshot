@@ -7,6 +7,7 @@ class ToolbarStripView: NSView {
     enum Orientation { case horizontal, vertical }
 
     let orientation: Orientation
+    let dragHandle = ToolbarDragHandleView()
     private(set) var buttonViews: [ToolbarButtonView] = []
     /// Set to true in editor mode so gap clicks pass through to the image beneath.
     var passesThrough = false
@@ -23,13 +24,18 @@ class ToolbarStripView: NSView {
     var onClick: ((ToolbarButtonAction) -> Void)?
     var onRightClick: ((ToolbarButtonAction, NSView) -> Void)?
     var onHover: ((ToolbarButtonAction, Bool) -> Void)?
+    var onContainerResize: (() -> Void)?
 
     private let padding: CGFloat = 4
     private let spacing: CGFloat = 2
+    private let gripLength: CGFloat = 16
 
     init(orientation: Orientation) {
         self.orientation = orientation
         super.init(frame: .zero)
+        dragHandle.vertical = orientation == .vertical
+        dragHandle.toolTip = L("Drag to reposition")
+        addSubview(dragHandle)
     }
 
     required init?(coder: NSCoder) { fatalError() }
@@ -111,25 +117,30 @@ class ToolbarStripView: NSView {
 
         switch orientation {
         case .horizontal:
-            let w = count * btnSize + max(0, count - 1) * spacing + padding * 2
+            let w = count * btnSize + max(0, count - 1) * spacing + padding * 2 + gripLength
             let h = btnSize + padding * 2
             frame.size = NSSize(width: w, height: h)
+            dragHandle.frame = NSRect(x: padding, y: padding, width: gripLength, height: btnSize)
             // Left-align buttons
             for (i, bv) in buttonViews.enumerated() {
-                bv.frame.origin = NSPoint(x: padding + CGFloat(i) * (btnSize + spacing), y: padding)
+                bv.frame.origin = NSPoint(x: padding + gripLength + CGFloat(i) * (btnSize + spacing), y: padding)
             }
         case .vertical:
             let w = btnSize + padding * 2
-            let h = count * btnSize + max(0, count - 1) * spacing + padding * 2
+            let h = count * btnSize + max(0, count - 1) * spacing + padding * 2 + gripLength
             frame.size = NSSize(width: w, height: h)
+            dragHandle.frame = NSRect(x: padding, y: h - padding - gripLength,
+                                      width: btnSize, height: gripLength)
             for (i, bv) in buttonViews.enumerated() {
                 // First button at top
-                bv.frame.origin = NSPoint(x: padding, y: h - padding - btnSize - CGFloat(i) * (btnSize + spacing))
+                bv.frame.origin = NSPoint(x: padding, y: h - padding - gripLength - btnSize - CGFloat(i) * (btnSize + spacing))
             }
         }
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        dragHandle.tintColor = ToolbarLayout.iconColor
+        dragHandle.needsDisplay = true
         ToolbarLayout.bgColor.setFill()
         NSBezierPath(roundedRect: bounds, xRadius: 6, yRadius: 6).fill()
     }
@@ -150,5 +161,10 @@ class ToolbarStripView: NSView {
 
     override func resetCursorRects() {
         addCursorRect(bounds, cursor: .arrow)
+    }
+
+    override func resize(withOldSuperviewSize oldSize: NSSize) {
+        super.resize(withOldSuperviewSize: oldSize)
+        onContainerResize?()
     }
 }

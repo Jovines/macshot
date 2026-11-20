@@ -121,10 +121,23 @@ jobs:
           xcodebuild build \
             -scheme macshot \
             -configuration Release \
+            -derivedDataPath build-normal \
             -destination 'platform=macOS' \
             CODE_SIGNING_ALLOWED=NO \
             | { grep -E "error:|\*\* BUILD" || true; }
           exit ${PIPESTATUS[0]}
+
+      - name: Package custom app
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            build-normal/Build/Products/Release/macshot.app macshot-draggable-toolbars.zip
+
+      - name: Upload custom app
+        uses: actions/upload-artifact@v4
+        with:
+          name: macshot-draggable-toolbars
+          path: macshot-draggable-toolbars.zip
+          retention-days: 14
 
       - name: Build Release (offline variant)
         run: |

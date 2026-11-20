@@ -498,6 +498,10 @@ class OverlayView: NSView {
     private var bottomStripView: ToolbarStripView?
     private var rightStripView: ToolbarStripView?
     private var toolOptionsRowView: ToolOptionsRowView?
+    // Manual chrome placement is local to this capture/editor, never annotation data.
+    private var bottomToolbarOrigin: NSPoint?
+    private var rightToolbarOrigin: NSPoint?
+    private var toolbarDragStartOrigin: NSPoint = .zero
 
     /// Intended overlay-space rect of the options row. .zero when the row is hidden.
     private var optionsRowRect: NSRect = .zero
@@ -5635,11 +5639,13 @@ class OverlayView: NSView {
             let strip = ToolbarStripView(orientation: .horizontal)
             parent.addSubview(strip)
             bottomStripView = strip
+            configureToolbarDragging(strip)
         }
         if rightStripView == nil {
             let strip = ToolbarStripView(orientation: .vertical)
             parent.addSubview(strip)
             rightStripView = strip
+            configureToolbarDragging(strip)
         }
 
         // Update existing buttons if count matches, rebuild only if structure changed
@@ -5692,6 +5698,43 @@ class OverlayView: NSView {
 
         repositionToolbars()
         updateResolutionBox()
+    }
+
+    private func configureToolbarDragging(_ strip: ToolbarStripView) {
+        strip.onContainerResize = { [weak self] in self?.repositionToolbars() }
+        strip.dragHandle.onBegin = { [weak self, weak strip] in
+            guard let self, let strip else { return }
+            self.toolbarDragStartOrigin = strip.frame.origin
+            PopoverHelper.dismiss()
+            strip.clearInteractionState()
+        }
+        strip.dragHandle.onDrag = { [weak self, weak strip] start, current in
+            guard let self, let strip, let window = self.window else { return }
+            let parent = self.chromeParentView ?? self
+            let from = parent.convert(window.convertPoint(fromScreen: start), from: nil)
+            let to = parent.convert(window.convertPoint(fromScreen: current), from: nil)
+            let origin = NSPoint(x: self.toolbarDragStartOrigin.x + to.x - from.x,
+                                 y: self.toolbarDragStartOrigin.y + to.y - from.y)
+            if strip.orientation == .horizontal {
+                self.bottomToolbarOrigin = origin
+            } else {
+                self.rightToolbarOrigin = origin
+            }
+            self.repositionToolbars()
+            self.updateResolutionBox()
+            self.needsDisplay = true
+        }
+        strip.dragHandle.onReset = { [weak self, weak strip] in
+            guard let self, let strip else { return }
+            if strip.orientation == .horizontal {
+                self.bottomToolbarOrigin = nil
+            } else {
+                self.rightToolbarOrigin = nil
+            }
+            self.repositionToolbars()
+            self.updateResolutionBox()
+            self.needsDisplay = true
+        }
     }
 
     /// Reposition toolbar strips based on current selection/bounds. Cheap — safe to call from draw().
@@ -5911,6 +5954,29 @@ class OverlayView: NSView {
             rightStrip.frame.origin = NSPoint(x: rx, y: ry)
         }
 
+        // Apply manual positions after automatic layout. Include the options row
+        // in the bottom bar's bounds so dragging never strands its controls offscreen.
+        let chromeBounds = chromeParentView?.bounds ?? bounds
+        let obstructions = isEditorMode ? [] : screenTopObstructionRects()
+        if let origin = bottomToolbarOrigin {
+            let row = toolOptionsRowView
+            let optionsSize: NSSize
+            if let row, !row.isHidden {
+                optionsSize = NSSize(width: max(bottomStrip.frame.width, row.contentWidth),
+                                     height: row.frame.height)
+            } else {
+                optionsSize = .zero
+            }
+            bottomStrip.frame.origin = ToolbarPlacement.origin(
+                origin, barSize: bottomStrip.frame.size, optionsSize: optionsSize,
+                optionsAbove: isEditorMode, bounds: chromeBounds, obstructions: obstructions)
+        }
+        if let origin = rightToolbarOrigin {
+            rightStrip.frame.origin = ToolbarPlacement.origin(
+                origin, barSize: rightStrip.frame.size, bounds: chromeBounds,
+                obstructions: obstructions)
+        }
+
         // bottomBarRect is the intended OVERLAY-space rect. Build it from the
         // strip's size + the origin we just set (rather than reading back the
         // live frame, which is panel-local when the strip is glass-panel-hosted).
@@ -5926,7 +5992,7 @@ class OverlayView: NSView {
             if isEditorMode {
                 // In editor mode, center the options row the same way as the bottom bar
                 let cb = chromeParentView?.bounds ?? bounds
-                let rowX = max(4, cb.midX - rowW / 2)
+                let rowX = max(4, min(bottomBarRect.midX - rowW / 2, cb.maxX - rowW - 4))
                 row.frame.origin = NSPoint(x: rowX, y: bottomBarRect.maxY + 2)
                 row.autoresizingMask = [.minXMargin, .maxXMargin, .maxYMargin]
             } else {
@@ -10862,6 +10928,8 @@ class OverlayView: NSView {
     }
 
     func reset() {
+        bottomToolbarOrigin = nil
+        rightToolbarOrigin = nil
         state = .idle
         selectionRect = .zero
         selectionIsWindowSnap = false
