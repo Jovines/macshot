@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Keep a manually positioned toolbar and its options together and reachable.
 enum ToolbarPlacement {
