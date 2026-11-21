@@ -405,6 +405,8 @@ Copy to clipboard, Save to file (PNG/JPEG/HEIC/WebP), Pin (floating always-on-to
 
 ## Releasing
 
+For Jovines/macshot, follow the [Fork packaging guide](docs/fork-packaging.md) to reuse the local Developer ID and preserve screen recording authorization across updates.
+
 ### Workflow: `.github/workflows/build-release.yml`
 
 CI triggers on tag push (`v*.*.*` or `v*.*.*-beta.*`) or manual `workflow_dispatch`. The workflow builds, signs, notarizes, creates a DMG, updates Sparkle appcast, creates a GitHub Release, and (for stable only) updates Homebrew.
