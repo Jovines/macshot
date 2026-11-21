@@ -9,6 +9,19 @@ import Cocoa
 class ScopedUndoTextView: NSTextView {
     private let scopedUndoManager = UndoManager()
 
+    var onMarkedTextChange: (() -> Void)?
+
+    override func setMarkedText(_ string: Any, selectedRange: NSRange, replacementRange: NSRange) {
+        super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+        onMarkedTextChange?()
+    }
+
+    override func unmarkText() {
+        let wasComposing = hasMarkedText()
+        super.unmarkText()
+        if wasComposing { onMarkedTextChange?() }
+    }
+
     override var undoManager: UndoManager? { scopedUndoManager }
 
     /// Clears both undo and redo operations before an editing session is torn down.

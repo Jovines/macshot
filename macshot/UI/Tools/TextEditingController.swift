@@ -354,6 +354,12 @@ class TextEditingController {
         self.scrollView = sv
         self.textView = tv
 
+        // AppKit may update marked text without the delegate's textDidChange notification.
+        tv.onMarkedTextChange = { [weak self, weak parentView] in
+            self?.resizeToFit()
+            parentView?.needsDisplay = true
+        }
+
         parentView.window?.makeFirstResponder(tv)
 
         if existingText != nil { resizeToFit() }
@@ -449,6 +455,7 @@ class TextEditingController {
         // Do not leave text operations pointing at a view that is about to be
         // removed. The scoped manager normally dies with the view; clearing it
         // explicitly also makes repeated show/dismiss calls safe.
+        textView?.onMarkedTextChange = nil
         textView?.discardUndoHistory()
         scrollView?.removeFromSuperview()
         scrollView = nil
