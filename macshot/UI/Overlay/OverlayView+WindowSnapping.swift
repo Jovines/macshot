@@ -436,18 +436,10 @@ extension OverlayView {
         return NSRect(origin: position, size: size)
     }
 
-    func drawSnapHighlight() {
+    var visibleSnapHighlightRect: NSRect? {
         guard state == .idle, snapMode != .off, let rect = hoveredSnapRect, !rect.isEmpty else {
-            return
+            return nil
         }
-
-        NSColor.systemBlue.withAlphaComponent(0.08).setFill()
-        NSBezierPath(roundedRect: rect, xRadius: 4, yRadius: 4).fill()
-
-        let border = NSBezierPath(
-            roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 4, yRadius: 4)
-        border.lineWidth = 2
-        NSColor.systemBlue.withAlphaComponent(0.85).setStroke()
-        border.stroke()
+        return rect
     }
 }

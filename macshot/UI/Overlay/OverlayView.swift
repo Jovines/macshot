@@ -1908,6 +1908,8 @@ class OverlayView: NSView {
 
         guard let context = NSGraphicsContext.current else { return }
 
+        let snapPreview = visibleSnapHighlightRect
+
         // In editor mode: dark background, draw image centered at natural size (no stretch).
         // selectionRect stays at (0, 0, imgW, imgH) — annotations always use image-relative coords.
         if isEditorMode {
@@ -1924,7 +1926,15 @@ class OverlayView: NSView {
                 }
                 if !selectionOutsideShadowDisabled {
                     NSColor.black.withAlphaComponent(0.45).setFill()
-                    NSBezierPath(rect: bounds).fill()
+                    let shade = NSBezierPath(rect: bounds)
+                    if let snapPreview {
+                        let opening = bounds.intersection(snapPreview)
+                        if !opening.isEmpty {
+                            shade.windingRule = .evenOdd
+                            shade.appendRect(opening)
+                        }
+                    }
+                    shade.fill()
                 }
             } else {
                 // No screenshot yet — fully transparent. User sees live desktop
@@ -1934,7 +1944,9 @@ class OverlayView: NSView {
         }
 
         // Snap-target highlight (drawn before helper text so text appears on top)
-        drawSnapHighlight()
+        if let snapPreview {
+            drawCaptureOutline(snapPreview)
+        }
 
         // Helper text (capture instructions). Suppressed when the user has
         // enabled "Hide capture instructions" in Settings (issue #226).
@@ -1968,11 +1980,7 @@ class OverlayView: NSView {
                 }
                 context.restoreGraphicsState()
             }
-            // Purple border for remote selection
-            let remoteBorder = NSBezierPath(rect: remoteSelectionRect)
-            remoteBorder.lineWidth = 2.0
-            ToolbarLayout.accentColor.setStroke()
-            remoteBorder.stroke()
+            drawCaptureOutline(remoteSelectionRect)
 
             // Resize handles for remote selection
             drawRemoteResizeHandles()
@@ -2170,14 +2178,7 @@ class OverlayView: NSView {
 
             // Lasso selection marquee (drawn in canvas space — same as annotations)
             if isLassoSelecting && lassoRect.width > 0 && lassoRect.height > 0 {
-                NSColor.systemBlue.withAlphaComponent(0.1).setFill()
-                NSBezierPath(rect: lassoRect).fill()
-                NSColor.systemBlue.withAlphaComponent(0.6).setStroke()
-                let border = NSBezierPath(rect: lassoRect)
-                border.lineWidth = 1.0
-                let pattern: [CGFloat] = [4, 3]
-                border.setLineDash(pattern, count: 2, phase: 0)
-                border.stroke()
+                drawCaptureOutline(lassoRect, dashed: true)
             }
 
             context.restoreGraphicsState()
@@ -2313,14 +2314,18 @@ class OverlayView: NSView {
             }
 
             // Selection border — hidden in editor mode and when beautify/effects preview is active,
-            // red during scroll capture, purple otherwise
+            // red during scroll capture to distinguish it from selection.
             if shouldDrawSelectionBorder()
                 && !showBeautifyPreview && !showEffectsPreview
             {
-                let borderPath = NSBezierPath(rect: selectionRect)
-                borderPath.lineWidth = isScrollCapturing ? 2.5 : 2.0
-                (isScrollCapturing ? NSColor.systemRed : ToolbarLayout.accentColor).setStroke()
-                borderPath.stroke()
+                if isScrollCapturing {
+                    let borderPath = NSBezierPath(rect: selectionRect)
+                    borderPath.lineWidth = 2.5
+                    NSColor.systemRed.setStroke()
+                    borderPath.stroke()
+                } else {
+                    drawCaptureOutline(selectionRect)
+                }
             }
 
             // Resolution box (real NSView) is managed in updateResolutionBox(),
@@ -3311,11 +3316,34 @@ class OverlayView: NSView {
         needsDisplay = true
     }
 
-    private func drawResizeHandles() {
-        for (_, rect) in allHandleRects() {
-            ToolbarLayout.handleColor.setFill()
-            NSBezierPath(ovalIn: rect).fill()
+    private func drawCaptureOutline(_ rect: NSRect, dashed: Bool = false) {
+        let outline = NSBezierPath(rect: rect)
+        if dashed {
+            let pattern: [CGFloat] = [4, 3]
+            outline.setLineDash(pattern, count: pattern.count, phase: 0)
         }
+        // A dark under-stroke keeps the white hairline legible on light content.
+        outline.lineWidth = 2.5
+        NSColor.black.withAlphaComponent(0.55).setStroke()
+        outline.stroke()
+        outline.lineWidth = 1
+        NSColor.white.withAlphaComponent(0.95).setStroke()
+        outline.stroke()
+    }
+
+    private func drawCaptureHandles(_ handles: [(ResizeHandle, NSRect)]) {
+        for (_, rect) in handles {
+            let dot = NSBezierPath(ovalIn: rect.insetBy(dx: 1, dy: 1))
+            NSColor.white.setFill()
+            dot.fill()
+            dot.lineWidth = 1
+            NSColor.black.withAlphaComponent(0.65).setStroke()
+            dot.stroke()
+        }
+    }
+
+    private func drawResizeHandles() {
+        drawCaptureHandles(allHandleRects())
     }
     /// Compare two colors by RGB components (ignoring minor floating point differences)    /// Convert NSColor to hex string like "FF3B30"
     private func colorToHexString(_ color: NSColor) -> String {
@@ -6119,10 +6147,7 @@ class OverlayView: NSView {
     }
 
     private func drawRemoteResizeHandles() {
-        for (_, rect) in handleRectsForRect(remoteSelectionRect) {
-            ToolbarLayout.handleColor.setFill()
-            NSBezierPath(ovalIn: rect).fill()
-        }
+        drawCaptureHandles(handleRectsForRect(remoteSelectionRect))
     }
 
     /// Returns the anchor point (fixed corner) for a given resize handle on a rect.
