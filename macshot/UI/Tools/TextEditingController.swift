@@ -18,6 +18,8 @@ protocol TextEditingCanvas: AnyObject {
 @MainActor
 class TextEditingController {
 
+    private(set) var wrapsAtFixedWidth = false
+
     // MARK: - Text style state
 
     var fontSize: CGFloat = UserDefaults.standard.object(forKey: "textFontSize") as? CGFloat ?? 20
@@ -257,6 +259,7 @@ class TextEditingController {
               existingText: NSAttributedString? = nil, existingFrame: NSRect = .zero,
               canvas: TextEditingCanvas) {
         dismiss()
+        wrapsAtFixedWidth = editingAnnotation?.textWrapsAtFixedWidth ?? (existingFrame != .zero)
 
         let viewPt = canvas.canvasToView(canvasPoint)
         let viewFrame: NSRect
@@ -264,7 +267,7 @@ class TextEditingController {
             viewFrame = NSRect(origin: canvas.canvasToView(existingFrame.origin), size: existingFrame.size)
         } else {
             let height = max(28, fontSize + 12)
-            viewFrame = NSRect(x: viewPt.x, y: viewPt.y - height, width: 200, height: height)
+            viewFrame = NSRect(x: viewPt.x, y: viewPt.y - height, width: 20, height: height)
         }
 
         let sv = NSScrollView(frame: viewFrame)
@@ -371,10 +374,7 @@ class TextEditingController {
                 options: [.usesLineFragmentOrigin, .usesFontLeading])
             let minH = max(28, fontSize + 12)
             let imgHeight = max(minH, ceil(textBounds.height) + inset.height * 2)
-            // Shrink width to fit the actual text (+ insets) so the bounding
-            // box doesn't extend far past the text content.
-            let fittedWidth = ceil(textBounds.width) + inset.width * 2
-            let imgWidth = max(fittedWidth, 20)  // minimum width for tiny text
+            let imgWidth = sv.frame.width
             let imgSize = NSSize(width: imgWidth, height: imgHeight)
 
             // Update scrollView frame to match the measured size so canvas
@@ -385,6 +385,10 @@ class TextEditingController {
 
             // Render through the outline layout manager so a per-glyph outline
             // is baked outside the fill, matching the live editor (#257).
+            guard SavedCaptureValidation.canRenderText(size: imgSize) else {
+                cancel(canvas: canvas)
+                return
+            }
             let img = OutlineTextRenderer.renderImage(attrStr, size: imgSize, inset: inset.width)
 
             let canvasOrigin = canvas.viewToCanvas(sv.frame.origin)
@@ -414,6 +418,7 @@ class TextEditingController {
             annotation.textAlignment = alignment
             annotation.textImage = img
             annotation.textDrawRect = canvasFrame
+            annotation.textWrapsAtFixedWidth = wrapsAtFixedWidth
             canvas.annotations.append(annotation)
             canvas.undoStack.append(.added(annotation))
             canvas.redoStack.removeAll()
@@ -445,19 +450,34 @@ class TextEditingController {
 
     // MARK: - Resize
 
-    /// Auto-resize the text view height to fit content, pinning the top edge.
+    func resizeWidth(to width: CGFloat) {
+        guard let sv = scrollView else { return }
+        wrapsAtFixedWidth = true
+        sv.frame.size.width = max(40, width)
+        resizeToFit()
+    }
+
+    /// Fit the text, keeping the insertion point's top-left anchor stable.
     func resizeToFit() {
         guard let tv = textView, let sv = scrollView else { return }
         guard let layoutManager = tv.layoutManager, let textContainer = tv.textContainer else { return }
 
+        let inset = tv.textContainerInset
+        let width: CGFloat
+        if !wrapsAtFixedWidth, let text = tv.textStorage {
+            width = OutlineTextRenderer.naturalWidth(text, inset: inset.width)
+        } else {
+            width = sv.frame.width
+        }
+        tv.frame.size.width = width
+        textContainer.containerSize = NSSize(
+            width: max(1, width - inset.width * 2), height: .greatestFiniteMagnitude)
         layoutManager.ensureLayout(for: textContainer)
         let usedRect = layoutManager.usedRect(for: textContainer)
         let extraHeight = layoutManager.extraLineFragmentRect.height
 
         let minH = max(28, fontSize + 12)
-        let inset = tv.textContainerInset
         let newHeight = max(minH, ceil(usedRect.height + extraHeight) + inset.height * 2)
-        let width = sv.frame.width
 
         let topEdge = sv.frame.maxY
         sv.frame = NSRect(x: sv.frame.minX, y: topEdge - newHeight, width: width, height: newHeight)

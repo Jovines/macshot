@@ -26,6 +26,7 @@ struct CodableAnnotation: Codable {
     var textBgColorRGBA: [CGFloat]?
     var textOutlineColorRGBA: [CGFloat]?
     var textGlyphStrokeColorRGBA: [CGFloat]?
+    var textWrapsAtFixedWidth: Bool?
     var textAlignment: Int = 0  // NSTextAlignment.rawValue
     var fontFamilyName: String?
     var textImagePNG: Data?
@@ -112,6 +113,7 @@ struct CodableAnnotation: Codable {
         textBgColorRGBA = c.decodeOptional(.textBgColorRGBA)
         textOutlineColorRGBA = c.decodeOptional(.textOutlineColorRGBA)
         textGlyphStrokeColorRGBA = c.decodeOptional(.textGlyphStrokeColorRGBA)
+        textWrapsAtFixedWidth = c.decodeOptional(.textWrapsAtFixedWidth)
         textAlignment = c.decode(.textAlignment, or: 0)
         fontFamilyName = c.decodeOptional(.fontFamilyName)
         textImagePNG = c.decodeOptional(.textImagePNG)
@@ -182,6 +184,7 @@ extension Annotation {
         if let bg = textBgColor { c.textBgColorRGBA = Self.encodeColor(bg) }
         if let outline = textOutlineColor { c.textOutlineColorRGBA = Self.encodeColor(outline) }
         if let glyph = textGlyphStrokeColor { c.textGlyphStrokeColorRGBA = Self.encodeColor(glyph) }
+        c.textWrapsAtFixedWidth = tool == .text ? textWrapsAtFixedWidth : nil
         c.textAlignment = textAlignment.rawValue
         c.fontFamilyName = fontFamilyName
         if let img = textImage { c.textImagePNG = Self.encodeImage(img) }
@@ -271,6 +274,7 @@ extension Annotation {
         if let rgba = c.textBgColorRGBA { ann.textBgColor = decodeColor(rgba) }
         if let rgba = c.textOutlineColorRGBA { ann.textOutlineColor = decodeColor(rgba) }
         if let rgba = c.textGlyphStrokeColorRGBA { ann.textGlyphStrokeColor = decodeColor(rgba) }
+        ann.textWrapsAtFixedWidth = c.textWrapsAtFixedWidth ?? true
         ann.textAlignment = NSTextAlignment(rawValue: c.textAlignment) ?? .left
         ann.fontFamilyName = c.fontFamilyName
         if let data = c.textImagePNG {

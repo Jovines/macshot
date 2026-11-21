@@ -21,6 +21,13 @@ extension NSAttributedString.Key {
 }
 
 enum OutlineTextRenderer {
+    static func naturalWidth(_ text: NSAttributedString, inset: CGFloat) -> CGFloat {
+        let rect = text.boundingRect(
+            with: NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading])
+        // Allow one point for fractional glyph bounds and the caret.
+        return max(20, ceil(rect.width) + inset * 2 + 1)
+    }
 
     /// Outline thickness as a fraction of the font point size when no explicit
     /// width is given. Tuned to read like the old `-6.0` stroke but drawn outside,

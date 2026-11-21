@@ -37,6 +37,7 @@ final class AnnotationPersistenceTests: XCTestCase {
         "isStrikethrough": .persisted,
         "textImage": .persisted,
         "textDrawRect": .persisted,
+        "textWrapsAtFixedWidth": .persisted,
         "textBgColor": .persisted,
         "textOutlineColor": .persisted,
         "textGlyphStrokeColor": .persisted,
@@ -275,6 +276,17 @@ final class AnnotationPersistenceTests: XCTestCase {
                                "`\(name)` keeps changing on each load for tool \(tool)")
             }
         }
+    }
+
+    func testAutoWidthTextSurvivesSerialization() throws {
+        let original = Self.fullyPopulated(tool: .text)
+        original.textGlyphStrokeColor = nil
+        original.textWrapsAtFixedWidth = false
+        let data = try XCTUnwrap(AnnotationSerializer.encode([original]))
+        let restored = try XCTUnwrap(AnnotationSerializer.decode(data)?.first)
+        XCTAssertFalse(restored.textWrapsAtFixedWidth)
+        XCTAssertFalse(restored.clone().textWrapsAtFixedWidth)
+        XCTAssertEqual(restored.textDrawRect, original.textDrawRect)
     }
 
     func testTextAnnotationWithoutGlyphStrokeKeepsItsBoxExactly() throws {

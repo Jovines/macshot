@@ -466,7 +466,6 @@ class OverlayView: NSView {
 
     // Text box resize state (stays here — tied to mouse drag handling)
     private var isResizingTextBox: Bool = false
-    private var textBoxResizeHandle: ResizeHandle = .none
     private var textBoxResizeStart: NSPoint = .zero
     private var textBoxOrigFrame: NSRect = .zero
     // (Text box move handle removed — standard annotation chrome handles movement)
@@ -1489,7 +1488,11 @@ class OverlayView: NSView {
 
         // Non-interactive states — simple cursors
         if textEditView != nil {
-            NSCursor.arrow.set()
+            if liveTextWidthHandle?.contains(point) == true {
+                cursorForHandle(.right).set()
+            } else {
+                NSCursor.arrow.set()
+            }
             return
         }
         if state == .idle || state == .selecting {
@@ -1670,6 +1673,9 @@ class OverlayView: NSView {
             }
         }
         if let event = NSApp.currentEvent, shouldRouteTextEditorDoubleClickToCopy(event: event, at: point) {
+            return self
+        }
+        if let grip = liveTextWidthHandle, grip.contains(convert(point, from: superview)) {
             return self
         }
         let result = super.hitTest(point)
@@ -2388,40 +2394,16 @@ class OverlayView: NSView {
                     context.restoreGraphicsState()
                 }
 
-                // Box border (always visible while editing)
-                NSColor.white.withAlphaComponent(0.4).setStroke()
-                let borderPath = NSBezierPath(rect: sv.frame)
-                borderPath.lineWidth = 1
-                let pattern: [CGFloat] = [4, 3]
-                borderPath.setLineDash(pattern, count: 2, phase: 0)
-                borderPath.stroke()
-
-                // Resize handles on the text box
-                let hs: CGFloat = 6
-                let handleColor = NSColor.white
-                let handleRects = [
-                    NSRect(
-                        x: sv.frame.minX - hs / 2, y: sv.frame.minY - hs / 2, width: hs, height: hs),  // bottom-left
-                    NSRect(
-                        x: sv.frame.maxX - hs / 2, y: sv.frame.minY - hs / 2, width: hs, height: hs),  // bottom-right
-                    NSRect(
-                        x: sv.frame.minX - hs / 2, y: sv.frame.maxY - hs / 2, width: hs, height: hs),  // top-left
-                    NSRect(
-                        x: sv.frame.maxX - hs / 2, y: sv.frame.maxY - hs / 2, width: hs, height: hs),  // top-right
-                    NSRect(
-                        x: sv.frame.midX - hs / 2, y: sv.frame.minY - hs / 2, width: hs, height: hs),  // bottom
-                    NSRect(
-                        x: sv.frame.midX - hs / 2, y: sv.frame.maxY - hs / 2, width: hs, height: hs),  // top
-                    NSRect(
-                        x: sv.frame.minX - hs / 2, y: sv.frame.midY - hs / 2, width: hs, height: hs),  // left
-                    NSRect(
-                        x: sv.frame.maxX - hs / 2, y: sv.frame.midY - hs / 2, width: hs, height: hs),  // right
-                ]
-                for hr in handleRects {
-                    handleColor.setFill()
-                    NSBezierPath(roundedRect: hr, xRadius: 1, yRadius: 1).fill()
-                    NSColor.black.withAlphaComponent(0.3).setStroke()
-                    NSBezierPath(roundedRect: hr, xRadius: 1, yRadius: 1).stroke()
+                if textEditor.wrapsAtFixedWidth {
+                    drawCaptureOutline(sv.frame, dashed: true)
+                }
+                if let handle = liveTextWidthHandle {
+                    let grip = NSBezierPath(roundedRect: handle.insetBy(dx: 2, dy: 2),
+                                            xRadius: 2, yRadius: 2)
+                    NSColor.white.setFill()
+                    grip.fill()
+                    NSColor.black.withAlphaComponent(0.65).setStroke()
+                    grip.stroke()
                 }
             }
 
@@ -6069,51 +6051,17 @@ class OverlayView: NSView {
 
         let isTextEditing = textEditView != nil
 
-        // Check text box resize handles when editing
         if isTextEditing && showToolbars {
-            // Check text box resize handles
-            if let sv = textEditor.scrollView {
-                let hs: CGFloat = 10  // hit area
-                let f = sv.frame
-                let handles: [(ResizeHandle, NSRect)] = [
-                    (
-                        .bottomLeft,
-                        NSRect(x: f.minX - hs / 2, y: f.minY - hs / 2, width: hs, height: hs)
-                    ),
-                    (
-                        .bottomRight,
-                        NSRect(x: f.maxX - hs / 2, y: f.minY - hs / 2, width: hs, height: hs)
-                    ),
-                    (
-                        .topLeft,
-                        NSRect(x: f.minX - hs / 2, y: f.maxY - hs / 2, width: hs, height: hs)
-                    ),
-                    (
-                        .topRight,
-                        NSRect(x: f.maxX - hs / 2, y: f.maxY - hs / 2, width: hs, height: hs)
-                    ),
-                    (
-                        .bottom,
-                        NSRect(x: f.midX - hs / 2, y: f.minY - hs / 2, width: hs, height: hs)
-                    ),
-                    (.top, NSRect(x: f.midX - hs / 2, y: f.maxY - hs / 2, width: hs, height: hs)),
-                    (.left, NSRect(x: f.minX - hs / 2, y: f.midY - hs / 2, width: hs, height: hs)),
-                    (.right, NSRect(x: f.maxX - hs / 2, y: f.midY - hs / 2, width: hs, height: hs)),
-                ]
-                for (handle, rect) in handles {
-                    if rect.contains(point) {
-                        isResizingTextBox = true
-                        textBoxResizeHandle = handle
-                        textBoxResizeStart = point
-                        textBoxOrigFrame = f
-                        return
-                    }
-                }
-            }
-            // Clicking on the text editor itself — don't commit
-            if let sv = textEditor.scrollView, sv.frame.contains(point) {
+            if let handle = liveTextWidthHandle, handle.contains(point),
+               let frame = textEditor.scrollView?.frame {
+                isResizingTextBox = true
+                textBoxResizeStart = point
+                textBoxOrigFrame = frame
+                textBoxOrigFrame.size.width = handle.minX - frame.minX
                 return
             }
+            // Clicking on the text editor itself doesn't commit it.
+            if let sv = textEditor.scrollView, sv.frame.contains(point) { return }
         }
 
         // Don't commit text if clicking on text formatting controls in the options row
@@ -6320,51 +6268,12 @@ class OverlayView: NSView {
             return
         }
 
-        // Handle text box resize
-        if isResizingTextBox, let sv = textEditor.scrollView, let tv = textEditView {
+        // Dragging the grip switches from natural width to wrapping.
+        if isResizingTextBox {
             let dx = point.x - textBoxResizeStart.x
-            let dy = point.y - textBoxResizeStart.y
-            let orig = textBoxOrigFrame
-            var newFrame = orig
-            let minW: CGFloat = 60
-            let minH: CGFloat = max(28, textEditor.fontSize + 12)
-
-            switch textBoxResizeHandle {
-            case .right: newFrame.size.width = max(minW, orig.width + dx)
-            case .left:
-                newFrame.origin.x = min(orig.maxX - minW, orig.minX + dx)
-                newFrame.size.width = orig.maxX - newFrame.minX
-            case .top: newFrame.size.height = max(minH, orig.height + dy)
-            case .bottom:
-                let newMinY = min(orig.maxY - minH, orig.minY + dy)
-                newFrame.origin.y = newMinY
-                newFrame.size.height = orig.maxY - newMinY
-            case .topRight:
-                newFrame.size.width = max(minW, orig.width + dx)
-                newFrame.size.height = max(minH, orig.height + dy)
-            case .topLeft:
-                newFrame.origin.x = min(orig.maxX - minW, orig.minX + dx)
-                newFrame.size.width = orig.maxX - newFrame.minX
-                newFrame.size.height = max(minH, orig.height + dy)
-            case .bottomRight:
-                newFrame.size.width = max(minW, orig.width + dx)
-                let newMinY = min(orig.maxY - minH, orig.minY + dy)
-                newFrame.origin.y = newMinY
-                newFrame.size.height = orig.maxY - newMinY
-            case .bottomLeft:
-                newFrame.origin.x = min(orig.maxX - minW, orig.minX + dx)
-                newFrame.size.width = orig.maxX - newFrame.minX
-                let newMinY = min(orig.maxY - minH, orig.minY + dy)
-                newFrame.origin.y = newMinY
-                newFrame.size.height = orig.maxY - newMinY
-            default: break
+            if abs(dx) >= 1 || textEditor.wrapsAtFixedWidth {
+                textEditor.resizeWidth(to: textBoxOrigFrame.width + dx)
             }
-
-            sv.frame = newFrame
-            tv.frame.size = newFrame.size
-            tv.textContainer?.containerSize = NSSize(
-                width: newFrame.width - tv.textContainerInset.width * 2,
-                height: CGFloat.greatestFiniteMagnitude)
             needsDisplay = true
             return
         }
@@ -6475,6 +6384,19 @@ class OverlayView: NSView {
                     default: break
                     }
 
+                    if newRect.width != origRect.width {
+                        annotation.textWrapsAtFixedWidth = true
+                        if let text = annotation.attributedText {
+                            let height = ceil(text.boundingRect(
+                                with: NSSize(width: max(1, newRect.width - textInset * 2),
+                                             height: .greatestFiniteMagnitude),
+                                options: [.usesLineFragmentOrigin, .usesFontLeading]).height)
+                            let top = newRect.maxY
+                            newRect.size.height = max(minH, height + textInset * 2)
+                            newRect.origin.y = top - newRect.height
+                        }
+                    }
+                    guard SavedCaptureValidation.canRenderText(size: newRect.size) else { break }
                     annotation.startPoint = newRect.origin
                     annotation.endPoint = NSPoint(x: newRect.maxX, y: newRect.maxY)
                     annotation.textDrawRect = newRect
@@ -9453,6 +9375,13 @@ class OverlayView: NSView {
 
     // MARK: - Text Field
 
+    private var liveTextWidthHandle: NSRect? {
+        guard let tv = textEditView, let frame = textEditor.scrollView?.frame,
+              !tv.string.isEmpty || textEditor.wrapsAtFixedWidth else { return nil }
+        let x = min(frame.maxX, bounds.maxX - 10)
+        return NSRect(x: x, y: frame.midY - 8, width: 10, height: 16)
+    }
+
     private func showTextField(
         at point: NSPoint, existingText: NSAttributedString? = nil, existingFrame: NSRect = .zero
     ) {
@@ -10208,7 +10137,7 @@ class OverlayView: NSView {
         if a.controlPoint != b.controlPoint { return true }
         if (a.points ?? []) != (b.points ?? []) { return true }
         if (a.anchorPoints ?? []) != (b.anchorPoints ?? []) { return true }
-        if a.textDrawRect != b.textDrawRect { return true }
+        if a.textDrawRect != b.textDrawRect || a.textWrapsAtFixedWidth != b.textWrapsAtFixedWidth { return true }
         if a.loupeSourceRect != b.loupeSourceRect { return true }
         if abs(a.loupeMagnification - b.loupeMagnification) > 0.0001 { return true }
         return false

@@ -155,6 +155,7 @@ class Annotation {
     var outlineGlowImage: NSImage?   // cached selection outline glow (invalidated on move/change)
     var outlineGlowRect: NSRect = .zero  // the rect the cached glow covers
     var textImage: NSImage?   // snapshot of the NSTextView at commit time — drawn as-is, no coord math
+    var textWrapsAtFixedWidth = true // Legacy annotations already have a chosen box width.
     var textDrawRect: NSRect = .zero  // where to draw textImage in OverlayView coords
     var fontSize: CGFloat = 20
     var isBold: Bool = false
@@ -254,6 +255,7 @@ class Annotation {
         c.bakedBlurNSImage = bakedBlurNSImage
         c.textImage = textImage
         c.textDrawRect = textDrawRect
+        c.textWrapsAtFixedWidth = textWrapsAtFixedWidth
         c.fontSize = fontSize
         c.isBold = isBold
         c.isItalic = isItalic
@@ -320,6 +322,7 @@ class Annotation {
         controlPoint = src.controlPoint
         anchorPoints = src.anchorPoints
         textDrawRect = src.textDrawRect
+        textWrapsAtFixedWidth = src.textWrapsAtFixedWidth
         rotation = src.rotation
         censorMode = src.censorMode
         // A snapshot's bake already matches the geometry and settings being
@@ -1724,14 +1727,15 @@ class Annotation {
 
         attributedText = mutable
 
-        // Calculate new size using the current textDrawRect width
         let inset: CGFloat = 4
-        let drawWidth = max(1, textDrawRect.width - inset * 2)
+        let width = textWrapsAtFixedWidth ? textDrawRect.width
+            : OutlineTextRenderer.naturalWidth(mutable, inset: inset)
+        let drawWidth = max(1, width - inset * 2)
         let boundingRect = mutable.boundingRect(
             with: NSSize(width: drawWidth, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading])
         let newHeight = max(textDrawRect.height, ceil(boundingRect.height) + inset * 2)
-        let imgSize = NSSize(width: textDrawRect.width, height: newHeight)
+        let imgSize = NSSize(width: width, height: newHeight)
         guard SavedCaptureValidation.canRenderText(size: imgSize) else { return false }
 
         // Re-render image through the outline layout manager so the per-glyph
@@ -1740,10 +1744,10 @@ class Annotation {
 
         // Update draw rect height (keep top edge fixed in AppKit coords: maxY stays the same)
         let heightDelta = newHeight - textDrawRect.height
-        if heightDelta != 0 {
+        if heightDelta != 0 || width != textDrawRect.width {
             textDrawRect = NSRect(
                 x: textDrawRect.minX, y: textDrawRect.minY - heightDelta,
-                width: textDrawRect.width, height: newHeight)
+                width: width, height: newHeight)
             startPoint = textDrawRect.origin
             endPoint = NSPoint(x: textDrawRect.maxX, y: textDrawRect.maxY)
         }
