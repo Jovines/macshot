@@ -1,9 +1,7 @@
 import Cocoa
 import XCTest
 
-/// "Hide the bottom toolbar" (Settings → Tools) removes the tool strip and its
-/// options row so nothing covers the capture; the right action strip stays so
-/// Copy, Save and Close are still reachable (#490).
+/// Hiding annotation tools leaves the unified toolbar's capture actions accessible.
 @MainActor
 final class HideBottomToolbarTests: XCTestCase {
 
@@ -49,15 +47,31 @@ final class HideBottomToolbarTests: XCTestCase {
         withDefaults(settings(hidden: false)) {
             let view = makeSelectedOverlay()
             XCTAssertEqual(strip(view, .horizontal)?.isHidden, false)
-            XCTAssertEqual(strip(view, .vertical)?.isHidden, false)
+            XCTAssertNil(strip(view, .vertical))
         }
     }
 
     func testTheSettingHidesTheBottomToolbarButKeepsTheActions() {
         withDefaults(settings(hidden: true)) {
             let view = makeSelectedOverlay()
-            XCTAssertEqual(strip(view, .horizontal)?.isHidden, true)
-            XCTAssertEqual(strip(view, .vertical)?.isHidden, false)
+            let actions = strip(view, .horizontal)?.buttonViews.map(\.action) ?? []
+            XCTAssertTrue(actions.contains(.copy))
+            XCTAssertTrue(actions.contains(.save))
+            XCTAssertFalse(actions.contains { if case .tool = $0 { return true }; return false })
+        }
+    }
+
+    func testToolOptionsOpenOnDemandAndCloseWithoutMovingTheToolbar() {
+        withDefaults(settings(hidden: false)) {
+            let view = makeSelectedOverlay()
+            view.handleToolbarAction(.tool(.rectangle))
+            let frame = strip(view, .horizontal)?.frame
+            XCTAssertEqual(optionsRow(view)?.isHidden, true)
+            view.handleToolbarAction(.toolOptions)
+            XCTAssertEqual(optionsRow(view)?.isHidden, false)
+            XCTAssertEqual(strip(view, .horizontal)?.frame, frame)
+            view.handleToolbarAction(.toolOptions)
+            XCTAssertEqual(optionsRow(view)?.isHidden, true)
         }
     }
 
@@ -67,7 +81,7 @@ final class HideBottomToolbarTests: XCTestCase {
             view.keyDown(with: TestKeyEvent.keyDown(characters: "r", keyCode: 15))
             XCTAssertEqual(view.currentTool, .rectangle, "tool shortcuts still work")
             view.rebuildToolbarLayout()
-            XCTAssertEqual(strip(view, .horizontal)?.isHidden, true)
+            XCTAssertFalse(strip(view, .horizontal)?.buttonViews.contains { $0.action == .toolOptions } ?? false)
             XCTAssertNotEqual(optionsRow(view)?.isHidden, false)
         }
     }

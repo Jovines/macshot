@@ -7,7 +7,9 @@ extension Notification.Name {
 // Toolbar buttons drawn directly in the OverlayView (not a separate window).
 // This avoids window-level z-order issues and matches Flameshot's look.
 
-enum ToolbarButtonAction {
+enum ToolbarButtonAction: Equatable {
+    case moreActions
+    case toolOptions
     case tool(AnnotationTool)
     case color
     case sizeDisplay
