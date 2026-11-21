@@ -396,6 +396,9 @@ class OverlayView: NSView {
                     toolOptionsRowView?.rebuild(forAnnotation: ann)
                     repositionToolbars()
                 } else if selectedAnnotations.isEmpty {
+                    if !textEditor.isEditing && textEditor.editingAnnotation == nil {
+                        textEditor.restoreDefaults()
+                    }
                     if let tool = currentTool as AnnotationTool? {
                         toolOptionsRowView?.rebuild(for: tool)
                         repositionToolbars()
@@ -633,7 +636,6 @@ class OverlayView: NSView {
 
     // Color picker target
     enum ColorPickerTarget { case drawColor, textBg, textOutline, textGlyphStroke, annotationOutline, loupeOutline }
-    private var colorPickerTarget: ColorPickerTarget = .drawColor
 
     // Beautify toolbar animation
     private var beautifyToolbarAnimProgress: CGFloat = 1.0  // 0..1, 1 = fully settled
@@ -5711,12 +5713,21 @@ class OverlayView: NSView {
     private func updateCompactToolbar(_ strip: ToolbarStripView, availableWidth: CGFloat) {
         let topLevelActions: [ToolbarButtonAction] = [.copy, .save, .cancel, .moveSelection]
         let primaryActions = rightButtons.filter { topLevelActions.contains($0.action) }
-        let tools = bottomToolbarHiddenBySetting ? [] : bottomButtons
+        let tools = bottomToolbarHiddenBySetting ? [] : bottomButtons.filter { $0.action != .color }
         var secondary = rightButtons.filter { !topLevelActions.contains($0.action) }
         var fixed = primaryActions
         if toolHasOptionsRow && !bottomToolbarHiddenBySetting {
             fixed.insert(ToolbarButton(action: .toolOptions, sfSymbol: "slider.horizontal.3",
                                        tooltip: L("Adjust"), isSelected: toolOptionsPinned), at: 0)
+        }
+
+        if !bottomToolbarHiddenBySetting {
+            var styleButtons = bottomButtons.filter { $0.action == .color }
+            if currentTool == .text || textEditor.isEditing || selectedAnnotation?.tool == .text {
+                styleButtons.append(ToolbarButton(action: .textBackground, sfSymbol: "character.textbox",
+                                                  tooltip: L("Background"), isSelected: textEditor.bgEnabled))
+            }
+            fixed.insert(contentsOf: styleButtons, at: 0)
         }
 
         var visible: [ToolbarButton]
@@ -8331,6 +8342,10 @@ class OverlayView: NSView {
 
     private func handleToolbarButtonRightClick(_ action: ToolbarButtonAction, anchorView: NSView) {
         switch action {
+        case .textBackground:
+            PopoverHelper.dismiss()
+            var undoRecorded = false
+            applyTextBackground(enabled: !textEditor.bgEnabled, undoRecorded: &undoRecorded)
         case .autoRedact:
             showRedactTypePopover(
                 anchorRect: anchorView.convert(anchorView.bounds, to: self), anchorView: anchorView)
@@ -8686,10 +8701,11 @@ class OverlayView: NSView {
         case .loupe:
             currentTool = .loupe
             needsDisplay = true
-        case .color:
-            if PopoverHelper.toggleClosedIfOpen() { break }
-            let colorBtn = bottomStripView?.buttonViews.first { if case .color = $0.action { return true }; return false }
-            showColorPickerPopover(target: .drawColor, anchorView: colorBtn)
+        case .color, .textBackground:
+            if let anchor = toolbarButton(for: action),
+               PopoverHelper.toggleClosedIfOpen(for: anchor) { break }
+            showColorPickerPopover(target: action == .color ? .drawColor : .textBg,
+                                   anchorView: toolbarButton(for: action))
         case .sizeDisplay:
             break
         case .adjustSelection:
@@ -9303,6 +9319,7 @@ class OverlayView: NSView {
         }
         // Check edit button (text annotations only)
         if selected.tool == .text && annotationEditButtonRect != .zero && annotationEditButtonRect.contains(point) {
+            textEditor.editingAnnotation = selected
             textEditor.restoreState(from: selected)
             if let idx = annotations.firstIndex(where: { $0 === selected }) {
                 annotations.remove(at: idx)
@@ -9397,6 +9414,7 @@ class OverlayView: NSView {
     func cancelTextEditing() {
         textToolDoubleClickCopyDeadline = 0
         textEditor.cancel(canvas: self)
+        textEditor.restoreDefaults()
         window?.makeFirstResponder(self)
         rebuildToolbarLayout()
         needsDisplay = true
@@ -9417,6 +9435,7 @@ class OverlayView: NSView {
         guard textEditor.isEditing else { return }
         textToolDoubleClickCopyDeadline = 0
         textEditor.commit(canvas: self)
+        textEditor.restoreDefaults()
         window?.makeFirstResponder(self)
         rebuildToolbarLayout()
         needsDisplay = true
@@ -10209,6 +10228,7 @@ class OverlayView: NSView {
             refreshToolOptionsAfterMeasureScaleChange()
         case .annotationsChange(let snapshots):
             redoStack.append(.annotationsChange(annotationSnapshots: restoreAnnotationSnapshots(snapshots)))
+            refreshTextBackgroundAfterRestore(snapshots)
             cachedCompositedImage = nil
         }
         needsDisplay = true
@@ -10297,6 +10317,7 @@ class OverlayView: NSView {
             refreshToolOptionsAfterMeasureScaleChange()
         case .annotationsChange(let snapshots):
             undoStack.append(.annotationsChange(annotationSnapshots: restoreAnnotationSnapshots(snapshots)))
+            refreshTextBackgroundAfterRestore(snapshots)
             cachedCompositedImage = nil
         }
         needsDisplay = true
@@ -10680,7 +10701,6 @@ class OverlayView: NSView {
     }
 
     func showColorPickerPopover(target: ColorPickerTarget, anchorView: NSView? = nil, anchorRect: NSRect = .zero) {
-        colorPickerTarget = target
         let picker = ColorPickerView()
         let initialColor: NSColor
         switch target {
@@ -10700,25 +10720,43 @@ class OverlayView: NSView {
             initialColor = (editingLoupe ?? selectedAnnotations.first { $0.tool == .loupe })?.outlineColor
                 ?? currentLoupeOutlineColor
         }
-        picker.setColor(initialColor, opacity: currentColorOpacity)
+        picker.setColor(initialColor, opacity: target == .textBg ? initialColor.alphaComponent : currentColorOpacity)
         picker.customColors = customColors
         picker.selectedColorSlot = selectedColorSlot
 
-        picker.onColorChanged = { [weak self] color in
-            guard let self = self else { return }
-            self.applyPickedColor(color)
-            picker.saveToSelectedSlot(color)
-            // Update toolbar color swatches without rebuilding (which destroys the popover anchor)
+        var backgroundUndoRecorded = false
+        if target == .textBg {
+            picker.configureBackgroundToggle(isEnabled: textEditor.bgEnabled) { [weak self] enabled in
+                self?.applyTextBackground(enabled: enabled, undoRecorded: &backgroundUndoRecorded)
+            }
+        }
+        picker.onColorChanged = { [weak self, weak picker] color in
+            guard let self, let picker else { return }
+            if target == .textBg {
+                self.applyTextBackground(enabled: true, color: color.withAlphaComponent(picker.opacity),
+                                         undoRecorded: &backgroundUndoRecorded)
+                picker.setBackgroundToggleEnabled(true)
+            } else {
+                self.applyPickedColor(color, target: target)
+                picker.saveToSelectedSlot(color)
+            }
+            // Refresh the swatches in place so the popover keeps its anchor.
             self.toolOptionsRowView?.updateSwatchColors()
             self.needsDisplay = true
         }
         picker.onOpacityChanged = { [weak self] opacity in
-            guard let self = self else { return }
-            self.currentColorOpacity = opacity
-            OverlayView.lastUsedOpacity = opacity
-            UserDefaults.standard.set(Double(opacity), forKey: "lastUsedColorOpacity")
-            self.applyColorToSelectedAnnotation()
-            self.needsDisplay = true
+            guard let self else { return }
+            if target == .textBg {
+                self.applyTextBackground(enabled: self.textEditor.bgEnabled,
+                                         color: self.textEditor.bgColor.withAlphaComponent(opacity),
+                                         undoRecorded: &backgroundUndoRecorded)
+            } else {
+                self.currentColorOpacity = opacity
+                OverlayView.lastUsedOpacity = opacity
+                UserDefaults.standard.set(Double(opacity), forKey: "lastUsedColorOpacity")
+                self.applyColorToSelectedAnnotation()
+                self.needsDisplay = true
+            }
         }
         picker.onCustomSlotSelected = { [weak self] idx in
             self?.selectedColorSlot = idx
@@ -10738,17 +10776,59 @@ class OverlayView: NSView {
         }
     }
 
-    private func applyPickedColor(_ color: NSColor) {
-        switch colorPickerTarget {
+    private func refreshTextBackgroundAfterRestore(_ snapshots: [(Annotation, Annotation)]) {
+        guard snapshots.contains(where: { $0.0.tool == .text }) else { return }
+        cachedAnnotationLayer = nil
+        cachedAnnotationLayerExcludingSelected = nil
+        if !textEditor.isEditing, let selected = selectedAnnotation, selected.tool == .text {
+            textEditor.restoreState(from: selected)
+            toolbarButton(for: .textBackground)?.isOn = textEditor.bgEnabled
+        }
+    }
+
+    private func applyTextBackground(enabled: Bool, color: NSColor? = nil, undoRecorded: inout Bool) {
+        textEditor.bgEnabled = enabled
+        let defaults = UserDefaults.standard
+        defaults.set(enabled, forKey: "textBgEnabled")
+        if let color {
+            textEditor.bgColor = color
+            if let data = try? NSKeyedArchiver.archivedData(withRootObject: color, requiringSecureCoding: true) {
+                defaults.set(data, forKey: "textBgColor")
+            }
+        }
+
+        if !textEditor.isEditing {
+            let fill = enabled ? textEditor.bgColor : nil
+            let changed = selectedAnnotations.filter { $0.tool == .text && $0.textBgColor != fill }
+            if !changed.isEmpty {
+                // Keep a single undo entry for a series of adjustments in the open picker.
+                if !undoRecorded {
+                    let snapshots = selectedAnnotations.filter { $0.tool == .text }.map { ($0, $0.clone()) }
+                    undoStack.append(.annotationsChange(annotationSnapshots: snapshots))
+                    redoStack.removeAll()
+                    undoRecorded = true
+                }
+                for annotation in changed {
+                    annotation.textBgColor = fill
+                    annotation.reRenderTextImage()
+                }
+                cachedAnnotationLayer = nil
+                cachedAnnotationLayerExcludingSelected = nil
+                cachedCompositedImage = nil
+            }
+        }
+        toolbarButton(for: .textBackground)?.isOn = enabled
+        needsDisplay = true
+    }
+
+    private func applyPickedColor(_ color: NSColor, target: ColorPickerTarget) {
+        switch target {
         case .drawColor:
             currentColor = color
             applyColorToTextIfEditing()
             applyColorToSelectedAnnotation()
         case .textBg:
-            textEditor.bgColor = color
-            if let data = try? NSKeyedArchiver.archivedData(withRootObject: color, requiringSecureCoding: false) {
-                UserDefaults.standard.set(data, forKey: "textBgColor")
-            }
+            break // Handled by the background picker with its own alpha and enable state.
         case .textOutline:
             textEditor.outlineColor = color
             if let data = try? NSKeyedArchiver.archivedData(withRootObject: color, requiringSecureCoding: false) {

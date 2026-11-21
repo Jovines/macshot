@@ -63,10 +63,6 @@ class ToolOptionsRowView: NSView {
     /// Update color swatches in-place without rebuilding the entire row.
     func updateSwatchColors() {
         guard let ov = overlayView else { return }
-        // Text background swatch (tag 975)
-        if let swatch = viewWithTag(975) {
-            swatch.layer?.backgroundColor = ov.textEditor.bgColor.cgColor
-        }
         // Text outline swatch (tag 976)
         if let swatch = viewWithTag(976) {
             swatch.layer?.backgroundColor = ov.textEditor.outlineColor.cgColor
@@ -999,37 +995,7 @@ class ToolOptionsRowView: NSView {
 
         curX = addSeparator(at: curX)
 
-        // Fill: clickable label (toggles on/off) + color swatch (opens color picker)
-        let fillSwatchSize: CGFloat = 18
-        let fillLabelBtn = NSButton(title: L("Fill"), target: self, action: #selector(textBgToggled(_:)))
-        fillLabelBtn.bezelStyle = .recessed
-        fillLabelBtn.setButtonType(.toggle)
-        fillLabelBtn.state = ov.textEditor.bgEnabled ? .on : .off
-        fillLabelBtn.font = NSFont.systemFont(ofSize: 10, weight: .medium)
-        fillLabelBtn.attributedTitle = NSAttributedString(string: L("Fill"), attributes: [
-            .font: NSFont.systemFont(ofSize: 10, weight: .medium),
-            .baselineOffset: 0.5,
-        ])
-        fillLabelBtn.sizeToFit()
-        fillLabelBtn.frame = NSRect(x: curX, y: (rowHeight - 22) / 2, width: max(30, fillLabelBtn.frame.width), height: 22)
-        addSubview(fillLabelBtn)
-        curX += fillLabelBtn.frame.width + 2
-
-        let fillSwatch = NSButton(frame: NSRect(x: curX, y: (rowHeight - fillSwatchSize) / 2, width: fillSwatchSize, height: fillSwatchSize))
-        fillSwatch.title = ""
-        fillSwatch.isBordered = false
-        fillSwatch.wantsLayer = true
-        fillSwatch.layer?.backgroundColor = ov.textEditor.bgColor.cgColor
-        fillSwatch.layer?.cornerRadius = 3
-        fillSwatch.layer?.borderWidth = 1.5
-        fillSwatch.layer?.borderColor = ToolbarLayout.iconColor.withAlphaComponent(0.4).cgColor
-        fillSwatch.layer?.opacity = ov.textEditor.bgEnabled ? 1.0 : 0.3
-        fillSwatch.tag = 975
-        fillSwatch.target = self
-        fillSwatch.action = #selector(textBgColorClicked(_:))
-        addSubview(fillSwatch)
-        curX += fillSwatchSize + 6
-
+        let outlineSwatchSize: CGFloat = 18
         // Outline: clickable label (toggles on/off) + color swatch (opens color picker)
         let outlineLabelBtn = NSButton(title: L("Outline"), target: self, action: #selector(textOutlineToggled(_:)))
         outlineLabelBtn.bezelStyle = .recessed
@@ -1045,7 +1011,7 @@ class ToolOptionsRowView: NSView {
         addSubview(outlineLabelBtn)
         curX += outlineLabelBtn.frame.width + 2
 
-        let outlineSwatch = NSButton(frame: NSRect(x: curX, y: (rowHeight - fillSwatchSize) / 2, width: fillSwatchSize, height: fillSwatchSize))
+        let outlineSwatch = NSButton(frame: NSRect(x: curX, y: (rowHeight - outlineSwatchSize) / 2, width: outlineSwatchSize, height: outlineSwatchSize))
         outlineSwatch.title = ""
         outlineSwatch.isBordered = false
         outlineSwatch.wantsLayer = true
@@ -1058,7 +1024,7 @@ class ToolOptionsRowView: NSView {
         outlineSwatch.target = self
         outlineSwatch.action = #selector(textOutlineColorClicked(_:))
         addSubview(outlineSwatch)
-        curX += fillSwatchSize + 6
+        curX += outlineSwatchSize + 6
 
         // Stroke (per-glyph): clickable label (toggles on/off) + color swatch
         let strokeLabelBtn = NSButton(title: L("Stroke"), target: self, action: #selector(textGlyphStrokeToggled(_:)))
@@ -1075,7 +1041,7 @@ class ToolOptionsRowView: NSView {
         addSubview(strokeLabelBtn)
         curX += strokeLabelBtn.frame.width + 2
 
-        let strokeSwatch = NSButton(frame: NSRect(x: curX, y: (rowHeight - fillSwatchSize) / 2, width: fillSwatchSize, height: fillSwatchSize))
+        let strokeSwatch = NSButton(frame: NSRect(x: curX, y: (rowHeight - outlineSwatchSize) / 2, width: outlineSwatchSize, height: outlineSwatchSize))
         strokeSwatch.title = ""
         strokeSwatch.isBordered = false
         strokeSwatch.wantsLayer = true
@@ -1088,7 +1054,7 @@ class ToolOptionsRowView: NSView {
         strokeSwatch.target = self
         strokeSwatch.action = #selector(textGlyphStrokeColorClicked(_:))
         addSubview(strokeSwatch)
-        curX += fillSwatchSize
+        curX += outlineSwatchSize
 
         // Cancel / Confirm — only when actively editing text, right-aligned
         if ov.textEditor.isEditing {
@@ -1864,16 +1830,6 @@ class ToolOptionsRowView: NSView {
         ov.needsDisplay = true
     }
 
-    @objc private func textBgToggled(_ sender: NSButton) {
-        guard let ov = overlayView else { return }
-        ov.textEditor.bgEnabled = sender.state == .on
-        UserDefaults.standard.set(ov.textEditor.bgEnabled, forKey: "textBgEnabled")
-        // Update swatch opacity
-        if let swatch = viewWithTag(975) { swatch.layer?.opacity = ov.textEditor.bgEnabled ? 1.0 : 0.3 }
-        ov.applyTextBgOutlineToSelectedAnnotations()
-        ov.needsDisplay = true
-    }
-
     @objc private func textOutlineToggled(_ sender: NSButton) {
         guard let ov = overlayView else { return }
         ov.textEditor.outlineEnabled = sender.state == .on
@@ -1881,12 +1837,6 @@ class ToolOptionsRowView: NSView {
         if let swatch = viewWithTag(976) { swatch.layer?.opacity = ov.textEditor.outlineEnabled ? 1.0 : 0.3 }
         ov.applyTextBgOutlineToSelectedAnnotations()
         ov.needsDisplay = true
-    }
-
-    @objc private func textBgColorClicked(_ sender: NSButton) {
-        if PopoverHelper.toggleClosedIfOpen() { return }
-        guard let ov = overlayView else { return }
-        ov.showColorPickerPopover(target: .textBg, anchorView: sender)
     }
 
     @objc private func textOutlineColorClicked(_ sender: NSButton) {

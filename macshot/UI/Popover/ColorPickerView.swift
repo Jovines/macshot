@@ -41,6 +41,28 @@ class ColorPickerView: NSView, NSTextFieldDelegate {
         needsDisplay = true
     }
 
+    private var backgroundToggle: NSButton?
+    private var onBackgroundToggled: ((Bool) -> Void)?
+
+    func configureBackgroundToggle(isEnabled: Bool, onToggle: @escaping (Bool) -> Void) {
+        let toggle = NSButton(checkboxWithTitle: L("Background"), target: self,
+                              action: #selector(backgroundToggled(_:)))
+        toggle.state = isEnabled ? .on : .off
+        backgroundToggle = toggle
+        onBackgroundToggled = onToggle
+        frame.size = preferredSize
+        addSubview(toggle)
+        needsDisplay = true
+    }
+
+    func setBackgroundToggleEnabled(_ enabled: Bool) {
+        backgroundToggle?.state = enabled ? .on : .off
+    }
+
+    @objc private func backgroundToggled(_ sender: NSButton) {
+        onBackgroundToggled?(sender.state == .on)
+    }
+
     // MARK: - Constants
 
     private let cols = 6
@@ -48,6 +70,7 @@ class ColorPickerView: NSView, NSTextFieldDelegate {
     private let padding: CGFloat = 6
     private let customSlotSize: CGFloat = 20
     private let customSlotSpacing: CGFloat = 6
+    private var backgroundHeaderHeight: CGFloat { backgroundToggle == nil ? 0 : 28 }
     private let opacityBarHeight: CGFloat = 12
     private let gradientSize: CGFloat = 140
     private let brightnessBarHeight: CGFloat = 16
@@ -94,7 +117,7 @@ class ColorPickerView: NSView, NSTextFieldDelegate {
 
     var preferredSize: NSSize {
         let pickerWidth = CGFloat(cols) * (swatchSize + padding) + padding
-        let pickerHeight = presetSectionHeight + padding + customSlotSize + padding
+        let pickerHeight = backgroundHeaderHeight + presetSectionHeight + padding + customSlotSize + padding
             + opacityBarHeight + padding + gradientSize + padding + brightnessBarHeight
             + padding + hexRowHeight + padding
         return NSSize(width: pickerWidth, height: pickerHeight)
@@ -179,6 +202,10 @@ class ColorPickerView: NSView, NSTextFieldDelegate {
     override func draw(_ dirtyRect: NSRect) {
         let pickerWidth = bounds.width
         var cursorY = bounds.maxY
+        if let toggle = backgroundToggle {
+            toggle.frame = NSRect(x: padding, y: cursorY - 22, width: pickerWidth - padding * 2, height: 22)
+            cursorY -= backgroundHeaderHeight
+        }
 
         // --- 1. Preset color swatches ---
         presetSwatchRects = []

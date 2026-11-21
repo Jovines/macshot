@@ -10,6 +10,7 @@ extension Notification.Name {
 enum ToolbarButtonAction: Equatable {
     case moreActions
     case toolOptions
+    case textBackground
     case tool(AnnotationTool)
     case color
     case sizeDisplay

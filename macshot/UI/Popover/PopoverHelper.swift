@@ -7,6 +7,7 @@ enum PopoverHelper {
 
     private static var activePopover: NSPopover?
     private static var anchorView: NSView?
+    private static weak var lastSourceView: NSView?
     /// Created on the first popover so an open popover can follow a later HUD appearance change.
     private static let hudColorObserver: NSObjectProtocol = {
         NotificationCenter.default.addObserver(
@@ -26,6 +27,7 @@ enum PopoverHelper {
     static func show(_ contentView: NSView, size: NSSize, relativeTo rect: NSRect, of view: NSView, preferredEdge: NSRectEdge = .minY) {
         _ = hudColorObserver
         dismiss()
+        lastSourceView = view
 
         let popover = NSPopover()
         popover.behavior = .semitransient
@@ -48,6 +50,7 @@ enum PopoverHelper {
     static func showAtPoint(_ contentView: NSView, size: NSSize, at point: NSPoint, in parentView: NSView, preferredEdge: NSRectEdge = .minY) {
         _ = hudColorObserver
         dismiss()
+        lastSourceView = nil
 
         // Create a tiny invisible anchor view at the point
         let anchor = NSView(frame: NSRect(x: point.x - 1, y: point.y - 1, width: 2, height: 2))
@@ -105,6 +108,11 @@ enum PopoverHelper {
             return true
         }
         return false
+    }
+
+    static func toggleClosedIfOpen(for sourceView: NSView) -> Bool {
+        guard lastSourceView === sourceView else { return false }
+        return toggleClosedIfOpen()
     }
 
     static var isVisible: Bool { activePopover?.isShown == true }

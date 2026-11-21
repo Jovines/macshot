@@ -22,34 +22,47 @@ class TextEditingController {
 
     // MARK: - Text style state
 
-    var fontSize: CGFloat = UserDefaults.standard.object(forKey: "textFontSize") as? CGFloat ?? 20
-    var bold: Bool = false
-    var italic: Bool = false
-    var underline: Bool = false
-    var strikethrough: Bool = false
+    var fontSize: CGFloat = 20
+    var bold = false
+    var italic = false
+    var underline = false
+    var strikethrough = false
     var alignment: NSTextAlignment = .left
-    var fontFamily: String = UserDefaults.standard.string(forKey: "textFontFamily") ?? "System"
-    var bgEnabled: Bool = UserDefaults.standard.bool(forKey: "textBgEnabled")
-    var outlineEnabled: Bool = UserDefaults.standard.bool(forKey: "textOutlineEnabled")
-    var glyphStrokeEnabled: Bool = UserDefaults.standard.bool(forKey: "textGlyphStrokeEnabled")
+    var fontFamily = "System"
+    var bgEnabled = false
+    var outlineEnabled = false
+    var glyphStrokeEnabled = false
+    var bgColor = NSColor.black.withAlphaComponent(0.5)
+    var outlineColor = NSColor.white
+    var glyphStrokeColor = NSColor.white
 
-    var bgColor: NSColor = {
-        if let data = UserDefaults.standard.data(forKey: "textBgColor"),
-           let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) { return color }
-        return NSColor.black.withAlphaComponent(0.5)
-    }()
+    init() {
+        restoreDefaults()
+    }
 
-    var outlineColor: NSColor = {
-        if let data = UserDefaults.standard.data(forKey: "textOutlineColor"),
-           let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) { return color }
-        return NSColor.white
-    }()
+    func restoreDefaults() {
+        let defaults = UserDefaults.standard
+        fontSize = defaults.object(forKey: "textFontSize") as? CGFloat ?? 20
+        fontFamily = defaults.string(forKey: "textFontFamily") ?? "System"
+        bold = defaults.bool(forKey: "textBold")
+        italic = defaults.bool(forKey: "textItalic")
+        underline = defaults.bool(forKey: "textUnderline")
+        strikethrough = defaults.bool(forKey: "textStrikethrough")
+        alignment = NSTextAlignment(rawValue: defaults.integer(forKey: "textAlignment")) ?? .left
+        bgEnabled = defaults.bool(forKey: "textBgEnabled")
+        outlineEnabled = defaults.bool(forKey: "textOutlineEnabled")
+        glyphStrokeEnabled = defaults.bool(forKey: "textGlyphStrokeEnabled")
+        bgColor = savedColor("textBgColor", fallback: NSColor.black.withAlphaComponent(0.5))
+        outlineColor = savedColor("textOutlineColor", fallback: .white)
+        glyphStrokeColor = savedColor("textGlyphStrokeColor", fallback: .white)
+    }
 
-    var glyphStrokeColor: NSColor = {
-        if let data = UserDefaults.standard.data(forKey: "textGlyphStrokeColor"),
-           let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data) { return color }
-        return NSColor.white
-    }()
+    private func savedColor(_ key: String, fallback: NSColor) -> NSColor {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let color = try? NSKeyedUnarchiver.unarchivedObject(ofClass: NSColor.self, from: data)
+        else { return fallback }
+        return color
+    }
 
     // MARK: - NSTextView
 
@@ -129,11 +142,9 @@ class TextEditingController {
     }
 
     func toggleBold() {
-        guard let tv = textView, let ts = tv.textStorage else {
-            bold.toggle()
-            return
-        }
         bold.toggle()
+        UserDefaults.standard.set(bold, forKey: "textBold")
+        guard let tv = textView, let ts = tv.textStorage else { return }
         let range = selectedOrAllRange()
         if range.length > 0 {
             ts.beginEditing()
@@ -150,11 +161,9 @@ class TextEditingController {
     }
 
     func toggleItalic() {
-        guard let tv = textView, let ts = tv.textStorage else {
-            italic.toggle()
-            return
-        }
         italic.toggle()
+        UserDefaults.standard.set(italic, forKey: "textItalic")
+        guard let tv = textView, let ts = tv.textStorage else { return }
         let range = selectedOrAllRange()
         if range.length > 0 {
             ts.beginEditing()
@@ -171,10 +180,9 @@ class TextEditingController {
     }
 
     func toggleUnderline() {
-        guard let tv = textView, let ts = tv.textStorage else {
-            underline.toggle()
-            return
-        }
+        underline.toggle()
+        UserDefaults.standard.set(underline, forKey: "textUnderline")
+        guard let tv = textView, let ts = tv.textStorage else { return }
         let range = selectedOrAllRange()
         if range.length > 0 {
             ts.beginEditing()
@@ -188,7 +196,6 @@ class TextEditingController {
             }
             ts.endEditing()
         }
-        underline.toggle()
         if underline {
             tv.typingAttributes[.underlineStyle] = NSUnderlineStyle.single.rawValue
         } else {
@@ -198,10 +205,9 @@ class TextEditingController {
     }
 
     func toggleStrikethrough() {
-        guard let tv = textView, let ts = tv.textStorage else {
-            strikethrough.toggle()
-            return
-        }
+        strikethrough.toggle()
+        UserDefaults.standard.set(strikethrough, forKey: "textStrikethrough")
+        guard let tv = textView, let ts = tv.textStorage else { return }
         let range = selectedOrAllRange()
         if range.length > 0 {
             ts.beginEditing()
@@ -215,7 +221,6 @@ class TextEditingController {
             }
             ts.endEditing()
         }
-        strikethrough.toggle()
         if strikethrough {
             tv.typingAttributes[.strikethroughStyle] = NSUnderlineStyle.single.rawValue
         } else {
@@ -225,6 +230,7 @@ class TextEditingController {
     }
 
     func applyAlignment() {
+        UserDefaults.standard.set(alignment.rawValue, forKey: "textAlignment")
         guard let tv = textView, let ts = tv.textStorage else { return }
         let range = NSRange(location: 0, length: ts.length)
         let paraStyle = NSMutableParagraphStyle()
@@ -259,6 +265,7 @@ class TextEditingController {
               existingText: NSAttributedString? = nil, existingFrame: NSRect = .zero,
               canvas: TextEditingCanvas) {
         dismiss()
+        if editingAnnotation == nil && existingFrame == .zero { restoreDefaults() }
         wrapsAtFixedWidth = editingAnnotation?.textWrapsAtFixedWidth ?? (existingFrame != .zero)
 
         let viewPt = canvas.canvasToView(canvasPoint)
@@ -494,7 +501,7 @@ class TextEditingController {
         fontFamily = annotation.fontFamilyName ?? "System"
         alignment = annotation.textAlignment
         bgEnabled = annotation.textBgColor != nil
-        if let bg = annotation.textBgColor { bgColor = bg }
+        bgColor = annotation.textBgColor ?? savedColor("textBgColor", fallback: NSColor.black.withAlphaComponent(0.5))
         outlineEnabled = annotation.textOutlineColor != nil
         if let ol = annotation.textOutlineColor { outlineColor = ol }
         glyphStrokeEnabled = annotation.textGlyphStrokeColor != nil
